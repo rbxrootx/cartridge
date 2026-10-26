@@ -1,0 +1,18 @@
+name: Bug in Cartridge
+description: Something in the launcher doesn't work
+body:
+  - type: checkboxes
+    attributes:
+      label: Before you post
+      options:
+        - label: This is about Cartridge itself, not about getting games, keys or firmware. Requests for, or links to, copyrighted files are deleted.
+          required: true
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw. Don't paste key values or file listings that include them.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: macOS version and Mac model

@@ -1,0 +1,62 @@
+name: Release
+
+# Push a tag like v1.2.0 to build, test and publish a universal Cartridge.app to GitHub Releases.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      # Optional: add these repository secrets to ship a Developer ID–signed, notarized build
+      # (no Gatekeeper warning). Without them the build is ad-hoc signed.
+      DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+      DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+      NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+      NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+      NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: swift test -c release
+
+      - name: Import signing certificate
+        if: env.DEVELOPER_ID_P12_BASE64 != ''
+        run: |
+          KEYCHAIN=$RUNNER_TEMP/signing.keychain-db
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          echo "$DEVELOPER_ID_P12_BASE64" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -k "$KEYCHAIN" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -o '"Developer ID Application[^"]*"' | head -1 | tr -d '"')
+          echo "CODESIGN_IDENTITY=$IDENTITY" >> $GITHUB_ENV
+
+      - name: Build
+        run: VERSION="${GITHUB_REF_NAME}" Scripts/build.sh zip
+
+      - name: Notarize
+        if: env.DEVELOPER_ID_P12_BASE64 != '' && env.NOTARY_APPLE_ID != ''
+        run: |
+          xcrun notarytool submit build/Cartridge.zip --wait \
+            --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD"
+          xcrun stapler staple build/Cartridge.app
+          rm build/Cartridge.zip
+          ditto -c -k --sequesterRsrc --keepParent build/Cartridge.app build/Cartridge.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shasum -a 256 build/Cartridge.zip | tee build/Cartridge.zip.sha256
+          gh release create "$GITHUB_REF_NAME" build/Cartridge.zip build/Cartridge.zip.sha256 \
+            --title "Cartridge $GITHUB_REF_NAME" --generate-notes

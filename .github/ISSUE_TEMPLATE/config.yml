@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Problems with a game itself (crashes, graphics, compatibility)
+    url: https://github.com/seedds/nxnative/issues
+    about: Games are built and run by nxnative. Report game problems there.

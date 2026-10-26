@@ -16,6 +16,14 @@ struct CartridgeApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 720)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    Task {
+                        await store.updater.check(userInitiated: true)
+                        store.sheet = .update
+                    }
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Add Game…") { store.presentAddPanel() }.keyboardShortcut("o")
             }

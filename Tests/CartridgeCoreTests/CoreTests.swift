@@ -79,4 +79,31 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(all.isEmpty)
         if let m4 = XcodeInstall.metal4 { XCTAssertTrue(m4.hasMetal4) }
     }
+
+    func testVersions() {
+        XCTAssertTrue(Version.isNewer("v1.10.0", than: "1.9.3"))
+        XCTAssertFalse(Version.isNewer("1.0", than: "1.0.0"))
+        XCTAssertFalse(Version.isNewer("v1.0.1", than: "1.0.1"))
+        XCTAssertTrue(Version.isNewer("2", than: "1.99"))
+    }
+
+    func testReleaseDecodingAndFiltering() throws {
+        let json = #"""
+        [{"tag_name": "v1.2.0", "name": "", "body": "### Added\n- Updates\n  wrapped", "html_url": "https://example.com/1",
+          "published_at": "2026-10-27T10:00:00Z", "draft": false, "prerelease": false,
+          "assets": [{"name": "Cartridge.zip", "browser_download_url": "https://example.com/z", "size": 10}]},
+         {"tag_name": "v1.1.0", "name": "Cartridge 1.1.0", "body": null, "html_url": "https://example.com/2",
+          "published_at": null, "draft": false, "prerelease": false, "assets": []},
+         {"tag_name": "v1.3.0-beta", "name": "b", "body": "", "html_url": "https://example.com/3",
+          "published_at": null, "draft": false, "prerelease": true, "assets": []},
+         {"tag_name": "v1.0.0", "name": "", "body": "", "html_url": "https://example.com/4",
+          "published_at": null, "draft": false, "prerelease": false, "assets": []}]
+        """#
+        let releases = try Release.decodeList(Data(json.utf8))
+        let updates = Version.updates(from: releases, current: "1.0.1")
+        XCTAssertEqual(updates.map(\.version), ["1.2.0", "1.1.0"])
+        XCTAssertEqual(updates[0].title, "Cartridge 1.2.0")
+        XCTAssertNotNil(updates[0].asset(named: "Cartridge.zip"))
+        XCTAssertEqual(ReleaseNotes.parse(updates[0].body!), [.heading("Added"), .bullet("Updates wrapped")])
+    }
 }

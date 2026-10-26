@@ -31,7 +31,10 @@ app:
 - **Play.** Built Mac apps launch straight from the home screen.
 - **Console-style navigation.** Arrow keys or a game controller move between tiles. **A** or Return plays,
   **X** or Space opens details, **B** closes. Light and dark mode.
-- **Updates.** Pull the latest nxnative from inside the app.
+- **Updates.** Cartridge checks GitHub for new releases (at launch and daily) and shows the changelog for every
+  version you're missing. **Install and Relaunch** downloads it, verifies its checksum, bundle ID and code
+  signature, swaps it in, and reopens. A badge also tells you when nxnative has new commits, and one click pulls
+  them.
 
 | Dark mode | Game details |
 | --- | --- |
@@ -59,7 +62,8 @@ swift test
 Scripts/build.sh install
 ```
 
-Every push is tested by CI. Pushing a `v*` tag publishes a release with a universal `Cartridge.zip`.
+Every push is tested by CI. Pushing a `v*` tag publishes a release with a universal `Cartridge.zip`. Its notes are
+written from the commit messages since the previous tag, and the app shows them as its changelog.
 
 ## What you need to bring
 

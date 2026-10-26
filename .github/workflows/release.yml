@@ -22,6 +22,8 @@ jobs:
       NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags and history for the changelog
 
       - name: Test
         run: swift test -c release
@@ -52,6 +54,20 @@ jobs:
           rm build/Cartridge.zip
           ditto -c -k --sequesterRsrc --keepParent build/Cartridge.app build/Cartridge.zip
 
+      - name: Write changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # Release notes = the commits since the previous tag: each subject as a heading, its body's bullets below.
+          # The app shows these as its changelog.
+          PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          RANGE=${PREV:+$PREV..}$GITHUB_REF_NAME
+          git log "$RANGE" --no-merges --reverse --format='### %s%n%n%b' \
+            | grep -v -i '^co-authored-by:' | cat -s > build/CHANGELOG.md
+          if [ -n "$PREV" ]; then
+            printf '\n[All changes since %s](https://github.com/%s/compare/%s...%s)\n' "$PREV" "$GITHUB_REPOSITORY" "$PREV" "$GITHUB_REF_NAME" >> build/CHANGELOG.md
+          fi
+          cat build/CHANGELOG.md
+
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -59,4 +75,4 @@ jobs:
         run: |
           shasum -a 256 build/Cartridge.zip | tee build/Cartridge.zip.sha256
           gh release create "$GITHUB_REF_NAME" build/Cartridge.zip build/Cartridge.zip.sha256 \
-            --title "Cartridge $GITHUB_REF_NAME" --generate-notes
+            --title "Cartridge ${GITHUB_REF_NAME#v}" --notes-file build/CHANGELOG.md

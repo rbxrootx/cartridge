@@ -81,7 +81,9 @@ struct HomeView: View {
         @Bindable var store = store
         VStack(spacing: 0) {
             TopBar()
-            if !store.requirements.isEmpty && !store.isReady {
+            if store.updater.latest != nil {
+                UpdateBanner()
+            } else if !store.requirements.isEmpty && !store.isReady {
                 SetupBanner()
             }
             Spacer(minLength: 12)
@@ -122,9 +124,12 @@ struct HomeView: View {
             case .game(let id): GameSheet(gameID: id)
             case .setup: SetupView()
             case .help: HelpView()
+            case .update: UpdateView()
+            case .whatsNew: WhatsNewView()
             }
         }
         .onChange(of: store.sheet) { if store.sheet == nil { focused = true } }
+        .onChange(of: store.updater.whatsNew) { if store.updater.whatsNew != nil, store.sheet == nil { store.sheet = .whatsNew } }
     }
 }
 
@@ -182,6 +187,25 @@ private struct TopBar: View {
                let capacity = desc[kIOPSCurrentCapacityKey] as? Int { return capacity }
         }
         return nil
+    }
+}
+
+private struct UpdateBanner: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Button { store.sheet = .update } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(Color.focus)
+                Text("Cartridge \(store.updater.latest?.version ?? "") is available").font(.rounded(14, .medium))
+                Text("See What’s New").font(.rounded(14, .semibold)).foregroundStyle(Color.focus)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(Color.tileBackground, in: Capsule())
+            .shadow(color: .black.opacity(0.08), radius: 4, y: 1)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 10)
     }
 }
 
@@ -406,7 +430,7 @@ private struct ButtonRow: View {
                             .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(button.tint)
                             .symbolEffect(.pulse, isActive: button == .update && store.isUpdatingRepo)
-                        if button == .setup && store.missingCount > 0 {
+                        if (button == .setup && store.missingCount > 0) || (button == .update && store.nxnativeUpdateAvailable) {
                             Circle().fill(.red).frame(width: 12, height: 12)
                                 .overlay(Circle().strokeBorder(.white, lineWidth: 2))
                                 .offset(x: 20, y: -20)
@@ -457,6 +481,8 @@ private struct BottomBar: View {
                         Text("Building \(build.title) · \(Int(build.progress * 100))%").font(.rounded(13, .medium))
                     }
                     .onTapGesture { store.sheet = .game(build.gameID) }
+                } else if store.nxnativeUpdateAvailable {
+                    Text("nxnative update available").font(.rounded(12, .medium)).foregroundStyle(.blue)
                 } else if !store.repoStatus.isEmpty {
                     Text("nxnative · \(store.repoStatus)").font(.rounded(12)).foregroundStyle(.tertiary)
                 }

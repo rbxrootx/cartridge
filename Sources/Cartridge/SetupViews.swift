@@ -183,10 +183,31 @@ struct SettingsView: View {
             Section("Home") {
                 Toggle("Menu sounds", isOn: $store.soundsEnabled)
             }
+            Section("Updates") {
+                LabeledContent("Cartridge", value: "Version \(store.updater.currentVersion)")
+                Toggle("Check for updates automatically", isOn: Binding(get: { store.updater.automatic },
+                                                                         set: { store.updater.automatic = $0 }))
+                HStack {
+                    Button("Check Now") { Task { await store.updater.check(userInitiated: true); showUpdateIfAny() } }
+                        .disabled(store.updater.state == .checking)
+                    Spacer()
+                    switch store.updater.state {
+                    case .checking: ProgressView().controlSize(.small)
+                    case .upToDate: Text("Up to date").foregroundStyle(.secondary)
+                    case .available: Button("Version \(store.updater.latest?.version ?? "") available…") { store.sheet = .update }
+                    case .failed(let m): Text(m).foregroundStyle(.red).lineLimit(1)
+                    default: EmptyView()
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func showUpdateIfAny() {
+        if store.updater.latest != nil { store.sheet = .update }
     }
 
     private func chooseRepo() {

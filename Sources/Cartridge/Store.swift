@@ -41,12 +41,14 @@ struct BuildOptions: Codable, Hashable {
 }
 
 enum Sheet: Identifiable, Hashable {
-    case game(UUID), setup, help
+    case game(UUID), setup, help, update, whatsNew
     var id: String {
         switch self {
         case .game(let id): "game-\(id)"
         case .setup: "setup"
         case .help: "help"
+        case .update: "update"
+        case .whatsNew: "whatsNew"
         }
     }
 }
@@ -76,6 +78,11 @@ final class Store {
     // Building
     private(set) var build: BuildSession?
 
+    // Updates
+    let updater = Updater()
+    /// nxnative has commits newer than the local checkout.
+    private(set) var nxnativeUpdateAvailable = false
+
     // Settings
     var customRepoPath: String? { didSet { defaults.set(customRepoPath, forKey: "customRepoPath"); refresh() } }
     var keysPath: String? { didSet { defaults.set(keysPath, forKey: "keysPath"); Task { await check() } } }
@@ -100,6 +107,8 @@ final class Store {
         }
         refresh()
         Task { await check() }
+        updater.launch()
+        Task { await checkNxnativeUpdate() }
     }
 
     // MARK: Library
@@ -296,6 +305,15 @@ final class Store {
         return log.ok ? "Updated \(log.output.trimmingCharacters(in: .whitespacesAndNewlines))" : ""
     }
 
+    /// Compares the checkout with GitHub without downloading anything.
+    func checkNxnativeUpdate() async {
+        guard FileManager.default.fileExists(atPath: repo.appendingPathComponent(".git").path) else { return }
+        let local = await Shell.run("/usr/bin/git", ["-C", repo.path, "rev-parse", "HEAD"])
+        let remote = await Shell.run("/usr/bin/git", ["-C", repo.path, "ls-remote", "origin", "HEAD"])
+        guard local.ok, remote.ok, let remoteHead = remote.output.split(separator: "\t").first else { return }
+        nxnativeUpdateAvailable = local.output.trimmingCharacters(in: .whitespacesAndNewlines) != String(remoteHead)
+    }
+
     func updateRepo() {
         guard !isUpdatingRepo, build == nil else { return }
         isUpdatingRepo = true
@@ -303,6 +321,7 @@ final class Store {
             let result = await Shell.run("/usr/bin/git", ["-C", repo.path, "pull", "--ff-only"])
             isUpdatingRepo = false
             repoStatus = result.ok ? await repoDescription() : "Update failed"
+            if result.ok { nxnativeUpdateAvailable = false }
             appendFix("$ git pull\n" + result.output)
             refresh()
             play(result.ok ? "Glass" : "Basso")

@@ -233,7 +233,7 @@ final class Store {
 
     /// Runs every automatic fix in dependency order (tools before the Python environment that uses them).
     func fixAll() {
-        let order: [Requirement.ID] = [.nxnative, .brewTools, .dotnet, .python]
+        let order: [Requirement.ID] = [.xcode, .nxnative, .brewTools, .dotnet, .python]
         let queue = order.compactMap { id in requirements.first { $0.id == id && $0.status == .missing } }
         Task {
             for requirement in queue {

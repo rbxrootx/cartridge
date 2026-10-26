@@ -33,6 +33,7 @@ public enum Paths {
         env["NONINTERACTIVE"] = "1"
         env["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1"
         env["PYTHONUNBUFFERED"] = "1"
+        if let xcode = XcodeInstall.metal4 { env["DEVELOPER_DIR"] = xcode.developerDir.path }
         if FileManager.default.fileExists(atPath: dotnetDir.appendingPathComponent("dotnet").path) {
             env["DOTNET_ROOT"] = dotnetDir.path
         }

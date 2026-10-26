@@ -56,15 +56,35 @@ public enum Toolchain {
     }
 
     static func checkXcode() async -> Requirement {
-        let path = await Shell.run("/usr/bin/xcode-select", ["-p"]).output.trimmingCharacters(in: .whitespacesAndNewlines)
-        let version = await Shell.run("/usr/bin/xcodebuild", ["-version"])
-        let ok = path.contains(".app/Contents/Developer") && version.ok
-        return Requirement(id: .xcode, title: "Xcode",
-                           detail: ok ? (version.output.split(separator: "\n").first.map(String.init) ?? "Installed")
-                                      : "The full Xcode app is needed (not just the command line tools).",
-                           status: ok ? .ok : .missing,
-                           fix: ok ? nil : .openURL(URL(string: "macappstore://apps.apple.com/app/id497799835")!),
-                           fixLabel: "Get Xcode")
+        let installed = XcodeInstall.all()
+        let fix = Requirement.Fix.openURL(URL(string: "macappstore://apps.apple.com/app/id497799835")!)
+        if let usable = XcodeInstall.metal4 {
+            let env = Paths.environment(extra: ["DEVELOPER_DIR": usable.developerDir.path])
+            let xcodebuild = "/usr/bin/xcodebuild"
+            // A new Xcode won't build until its license is accepted and first-launch components are installed (needs admin).
+            if !(await Shell.run(xcodebuild, ["-checkFirstLaunchStatus"], environment: env).ok) {
+                let dev = usable.developerDir.path
+                return Requirement(id: .xcode, title: "Xcode \(usable.version): finish installing",
+                                   detail: "Accept Xcode’s license and install its first-launch components. Terminal asks for your password.",
+                                   status: .missing,
+                                   fix: .terminal("sudo DEVELOPER_DIR='\(dev)' \(xcodebuild) -license accept && sudo DEVELOPER_DIR='\(dev)' \(xcodebuild) -runFirstLaunch"),
+                                   fixLabel: "Finish in Terminal…")
+            }
+            // Since Xcode 26 the Metal shader compiler is a separate download.
+            if !(await Shell.run("/usr/bin/xcrun", ["metal", "-v"], environment: env).ok) {
+                return Requirement(id: .xcode, title: "Xcode \(usable.version): Metal toolchain",
+                                   detail: "Downloads the Metal shader compiler that nxnative uses (about 700 MB, no password needed).",
+                                   status: .missing,
+                                   fix: .run([[xcodebuild, "-downloadComponent", "MetalToolchain"]]),
+                                   fixLabel: "Download")
+            }
+            return Requirement(id: .xcode, title: "Xcode", detail: "Xcode \(usable.version) with the Metal 4 SDK", status: .ok)
+        }
+        let detail = installed.isEmpty
+            ? "nxnative needs Xcode 26 or later (the full app, not just the command line tools)."
+            : "Xcode \(installed.map(\.version).joined(separator: ", ")) is too old: nxnative needs Xcode 26 or later for its Metal 4 graphics code. Update it from the App Store."
+        return Requirement(id: .xcode, title: "Xcode 26 or later", detail: detail, status: .missing, fix: fix,
+                           fixLabel: installed.isEmpty ? "Get Xcode" : "Update Xcode")
     }
 
     static func checkHomebrew() -> Requirement {
@@ -147,6 +167,38 @@ public enum Toolchain {
                            status: state == .valid ? .ok : .missing,
                            fix: .chooseKeys, fixLabel: keys == nil ? "Choose…" : "Change…")
     }
+}
+
+/// An installed Xcode. nxnative's Mac host uses Metal 4 (MTL4…) APIs, which need the macOS 26 SDK (Xcode 26+).
+public struct XcodeInstall: Sendable {
+    public var developerDir: URL
+    public var version: String
+
+    public var hasMetal4: Bool {
+        FileManager.default.fileExists(atPath: developerDir.appendingPathComponent(
+            "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Headers/MTL4ComputeCommandEncoder.h").path)
+    }
+
+    /// Every Xcode in /Applications and ~/Applications (Xcode.app, Xcode-beta.app, Xcode_26.app, …), newest first.
+    public static func all() -> [XcodeInstall] {
+        let fm = FileManager.default
+        let roots = [URL(fileURLWithPath: "/Applications"), fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications")]
+        return roots.flatMap { root in
+            ((try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.lastPathComponent.hasPrefix("Xcode") && $0.pathExtension == "app" }
+                .compactMap { app -> XcodeInstall? in
+                    let dev = app.appendingPathComponent("Contents/Developer")
+                    guard fm.fileExists(atPath: dev.path) else { return nil }
+                    let plist = NSDictionary(contentsOf: app.appendingPathComponent("Contents/version.plist"))
+                    return XcodeInstall(developerDir: dev, version: plist?["CFBundleShortVersionString"] as? String ?? "?")
+                }
+        }
+        .sorted { $0.version.compare($1.version, options: .numeric) == .orderedDescending }
+    }
+
+    /// The Xcode builds should use: the newest one with the Metal 4 SDK, so a second, newer Xcode works
+    /// without having to `sudo xcode-select` it.
+    public static var metal4: XcodeInstall? { all().first { $0.hasMetal4 } }
 }
 
 /// The user's prod.keys. Only its shape is checked: the launcher never displays, copies or uploads key values.

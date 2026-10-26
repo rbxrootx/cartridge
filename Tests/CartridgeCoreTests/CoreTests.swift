@@ -72,4 +72,11 @@ final class CoreTests: XCTestCase {
         print("catalog: \(catalog.entries.count) games, \(withArt.count) with artwork")
         XCTAssertGreaterThan(withArt.count, 55)
     }
+
+    func testXcodeDetection() {
+        let all = XcodeInstall.all()
+        print("xcodes:", all.map { "\($0.version) metal4=\($0.hasMetal4)" })
+        XCTAssertFalse(all.isEmpty)
+        if let m4 = XcodeInstall.metal4 { XCTAssertTrue(m4.hasMetal4) }
+    }
 }

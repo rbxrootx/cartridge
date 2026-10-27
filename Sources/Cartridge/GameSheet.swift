@@ -10,6 +10,7 @@ struct GameSheet: View {
     @State private var options = BuildOptions()
     @State private var showLog = false
     @State private var confirmRemove = false
+    @State private var confirmIncompatible = false
 
     var body: some View {
         if let game = store.game(gameID), let folder = store.folders[gameID] {
@@ -26,12 +27,24 @@ struct GameSheet: View {
                 footer(game, folder, session)
             }
             .frame(width: 640, height: 640)
+            .dropDestination(for: URL.self) { urls, _ in
+                store.addFiles(urls, to: game)
+                return true
+            }
+            .onDisappear { if store.addFilesMessage?.0 == gameID { store.addFilesMessage = nil } }
             .onAppear {
                 options = store.defaultOptions
                 // Default to the version nxnative tested, when the folder has it and it isn't the newest.
                 if case .tested(let v) = folder.versionCheck(store.catalog[folder.titleID]), v != folder.versions.last {
                     options.version = v
                 }
+            }
+            .alert("This version isn’t compatible", isPresented: $confirmIncompatible) {
+                Button("Cancel", role: .cancel) {}
+                Button("Build Anyway", role: .destructive) { store.startBuild(game, options: options) }
+            } message: {
+                let needed = store.catalog[folder.titleID]?.testedVersions.map(\.display).joined(separator: " or ") ?? "a tested version"
+                Text("nxnative supports this game on \(needed). This build will most likely crash on launch, and building takes up to an hour.")
             }
             .confirmationDialog("Remove \(store.title(for: game)) from Cartridge?", isPresented: $confirmRemove) {
                 Button("Remove", role: .destructive) { store.remove(gameID); dismiss() }
@@ -72,8 +85,11 @@ struct GameSheet: View {
                     Text(id).font(.system(.callout, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 HStack(spacing: 6) {
-                    if entry != nil {
-                        Chip(text: "Tested with nxnative", symbol: "checkmark.seal.fill", tint: .green)
+                    if let entry, folder.isCompatible(version: options.version, entry) == false {
+                        Chip(text: "Not compatible: needs \(entry.testedVersions.map(\.display).joined(separator: " or "))",
+                             symbol: "xmark.circle.fill", tint: .red)
+                    } else if entry != nil {
+                        Chip(text: "Compatible", symbol: "checkmark.seal.fill", tint: .green)
                     } else if !store.catalog.entries.isEmpty {
                         Chip(text: "Untested: may not start", symbol: "flask.fill", tint: .orange)
                     }
@@ -94,6 +110,12 @@ struct GameSheet: View {
 
     private func form(_ game: LibraryGame, _ folder: GameFolder) -> some View {
         Form {
+            if let (id, message, isError) = store.addFilesMessage, id == gameID {
+                Section {
+                    Label(message, systemImage: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(isError ? .red : .green)
+                }
+            }
             if let record = game.lastBuild, !record.ok, store.build?.gameID != gameID {
                 Section {
                     Label(record.message ?? "The last build failed.", systemImage: "exclamationmark.triangle.fill")
@@ -105,14 +127,15 @@ struct GameSheet: View {
                 Section {
                     Label {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("nxnative was tested with version \(tested.map(\.display).joined(separator: ", ")) of this game")
+                            Text("This version isn’t compatible")
                                 .font(.headline)
-                            Text("Your folder has \(folder.versions.map { GameFolder.versionLabel($0) }.joined(separator: ", ")). Other versions are built from a guessed profile and may crash on launch. Add the \(tested.map(\.display).joined(separator: " or ")) update, dumped from your own console, to this folder.")
+                            Text("nxnative supports this game on version \(tested.map(\.display).joined(separator: " or ")). Your folder has \(folder.versions.map { GameFolder.versionLabel($0) }.joined(separator: ", ")), which will most likely crash on launch. Add the \(tested.map(\.display).joined(separator: " or ")) update, dumped from your own console, to this folder and build again.")
                                 .font(.callout).foregroundStyle(.secondary)
                         }
                     } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
                     }
+                    addUpdateButton(game, prominent: true)
                 }
             }
 
@@ -180,10 +203,29 @@ struct GameSheet: View {
                     Label("No base game found. Add the base game’s NSP or XCI to this folder.", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                 }
+                addUpdateButton(game, prominent: false)
                 diskSpace(folder)
             }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func addUpdateButton(_ game: LibraryGame, prominent: Bool) -> some View {
+        HStack {
+            if prominent {
+                Button("Add Update…") { store.presentAddFilesPanel(for: game) }.buttonStyle(.borderedProminent)
+            } else {
+                Button("Add Update or DLC…") { store.presentAddFilesPanel(for: game) }
+            }
+            if store.addingFiles == gameID {
+                ProgressView().controlSize(.small)
+                Text("Copying…").foregroundStyle(.secondary)
+            } else if prominent {
+                Text("or drop the file here").foregroundStyle(.secondary)
+            }
+        }
+        .disabled(store.addingFiles != nil || store.build?.gameID == gameID && store.build?.isRunning == true)
     }
 
     private func icon(_ kind: GameFile.Kind) -> String {
@@ -223,7 +265,13 @@ struct GameSheet: View {
                 Button("Done") { store.clearFinishedBuild() }.keyboardShortcut(.defaultAction)
             } else {
                 let busy = store.build?.isRunning == true
-                Button(folder.outputs.isEmpty ? "Build" : "Rebuild") { store.startBuild(game, options: options) }
+                Button(folder.outputs.isEmpty ? "Build" : "Rebuild") {
+                    if folder.isCompatible(version: options.version, store.catalog[folder.titleID]) == false {
+                        confirmIncompatible = true
+                    } else {
+                        store.startBuild(game, options: options)
+                    }
+                }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(!store.isReady || busy || folder.base == nil)

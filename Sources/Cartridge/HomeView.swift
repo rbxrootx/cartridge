@@ -105,6 +105,12 @@ struct HomeView: View {
             case "setup": store.sheet = .setup
             case "help": store.sheet = .help
             case "game": if let g = store.games.first { store.sheet = .game(g.id) }
+                if let files = ProcessInfo.processInfo.environment["CARTRIDGE_DEBUG_ADD"], let g = store.games.first {
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        store.addFiles(files.split(separator: ":").map { URL(fileURLWithPath: String($0)) }, to: g)
+                    }
+                }
             default: break
             }
             #endif
@@ -292,8 +298,17 @@ private struct GameTile: View {
             }
 
             HStack(spacing: 6) {
-                if folder?.latestMacApp != nil { Chip(text: "Ready", symbol: "play.fill", tint: .green) }
-                else if folder?.latestIPA != nil { Chip(text: "IPA", symbol: "iphone", tint: .blue) }
+                let incompatible: Bool = {
+                    if case .untested? = folder?.versionCheck(store.catalog[folder?.titleID]) { return true }
+                    return false
+                }()
+                if incompatible {
+                    Chip(text: "Not compatible", symbol: "xmark.circle.fill", tint: .red)
+                } else if folder?.latestMacApp != nil {
+                    Chip(text: "Ready", symbol: "play.fill", tint: .green)
+                } else if folder?.latestIPA != nil {
+                    Chip(text: "IPA", symbol: "iphone", tint: .blue)
+                }
                 if !tested { Chip(text: "Untested", symbol: "flask.fill", tint: .orange) }
             }
             .padding(10)

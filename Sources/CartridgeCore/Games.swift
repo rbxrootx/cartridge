@@ -111,6 +111,13 @@ public struct GameFolder: Hashable, Sendable {
         return .untested(have: versions, tested: tested)
     }
 
+    /// Whether building `version` (nil = the newest in the folder) gives a version nxnative supports.
+    /// nil when nxnative has no tested versions on record for the game.
+    public func isCompatible(version: Int?, _ entry: Catalog.Entry?) -> Bool? {
+        guard let tested = entry?.testedVersions, !tested.isEmpty, let v = version ?? versions.last else { return nil }
+        return tested.contains { $0.code == v }
+    }
+
     public static func versionLabel(_ v: Int) -> String {
         v == 0 ? "Base game (v0)" : "Update \(v >> 16) (v\(v))"
     }

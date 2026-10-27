@@ -131,7 +131,18 @@ final class Store {
     }
 
     func add(folders urls: [URL]) {
+        // A dropped update/DLC file for a game already in the library goes into that game's folder.
+        var rest = [URL]()
         for url in urls {
+            let file = GameFile.parse(url)
+            if file.kind == .update || file.kind == .dlc,
+               let game = games.first(where: { folders[$0.id]?.titleID == file.baseTitleID }) {
+                addFiles([url], to: game)
+            } else {
+                rest.append(url)
+            }
+        }
+        for url in rest {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
             // A dropped NSP means its folder.
@@ -154,6 +165,72 @@ final class Store {
         panel.message = "Choose a folder holding one game’s NSP or XCI files (base game, plus update and DLC if you have them)"
         panel.prompt = "Add Game"
         if panel.runModal() == .OK { add(folders: panel.urls) }
+    }
+
+    // MARK: Updates and DLC
+
+    /// The game currently receiving files, and the result to show on its page.
+    private(set) var addingFiles: UUID?
+    var addFilesMessage: (UUID, String, Bool)?   // game, message, is error
+
+    func presentAddFilesPanel(for game: LibraryGame) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = GameFile.extensions.compactMap { .init(filenameExtension: $0) }
+        panel.message = "Choose the update (and any DLC) for \(title(for: game)), dumped from your own console"
+        panel.prompt = "Add"
+        if panel.runModal() == .OK { addFiles(panel.urls, to: game) }
+    }
+
+    /// Copies update/DLC files into the game's folder after checking they belong to it.
+    /// On the same APFS volume the copy is an instant clone that uses no extra space.
+    func addFiles(_ urls: [URL], to game: LibraryGame) {
+        guard addingFiles == nil, let folder = folders[game.id] else { return }
+        var accepted = [URL]()
+        for url in urls {
+            let file = GameFile.parse(url)
+            guard GameFile.extensions.contains(url.pathExtension.lowercased()) else {
+                addFilesMessage = (game.id, "\(url.lastPathComponent) isn’t an NSP, XCI, NSZ or XCZ file.", true); continue
+            }
+            if let base = file.baseTitleID, let mine = folder.titleID, base != mine {
+                addFilesMessage = (game.id, "\(url.lastPathComponent) is for a different game (\(base)), not \(title(for: game)).", true)
+                continue
+            }
+            if file.kind == .base {
+                addFilesMessage = (game.id, "\(url.lastPathComponent) is a base game, not an update or DLC.", true); continue
+            }
+            if url.deletingLastPathComponent().standardizedFileURL == game.folder.standardizedFileURL { continue }
+            accepted.append(url)
+        }
+        guard !accepted.isEmpty else { return }
+        addingFiles = game.id
+        let destination = game.folder
+        Task {
+            let failures: [String] = await Task.detached(priority: .userInitiated) {
+                var failed = [String]()
+                for url in accepted {
+                    let target = destination.appendingPathComponent(url.lastPathComponent)
+                    if FileManager.default.fileExists(atPath: target.path) { continue }
+                    do { try FileManager.default.copyItem(at: url, to: target) }
+                    catch { failed.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                }
+                return failed
+            }.value
+            addingFiles = nil
+            folders[game.id] = GameFolder.scan(game.folder)
+            let updated = folders[game.id]
+            if !failures.isEmpty {
+                addFilesMessage = (game.id, "Couldn’t add " + failures.joined(separator: "; "), true)
+                play("Basso")
+            } else if case .tested(let v)? = updated?.versionCheck(catalog[updated?.titleID]) {
+                let label = catalog[updated?.titleID]?.testedVersions.first { $0.code == v }?.display ?? GameFolder.versionLabel(v)
+                addFilesMessage = (game.id, "Update \(label) added. This game is now compatible: rebuild it to play.", false)
+                play("Glass")
+            } else {
+                addFilesMessage = (game.id, "Added \(accepted.count) file\(accepted.count == 1 ? "" : "s").", false)
+                play("Pop")
+            }
+        }
     }
 
     func remove(_ id: UUID) {

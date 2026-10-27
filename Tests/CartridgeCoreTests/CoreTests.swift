@@ -119,5 +119,9 @@ final class CoreTests: XCTestCase {
         withUpdate.files.append(GameFile.parse(URL(fileURLWithPath: "/g/X [0500000000010800][v1114112].nsp")))
         XCTAssertEqual(withUpdate.versionCheck(entry), .tested(1114112))
         XCTAssertEqual(baseOnly.versionCheck(nil), .unknown)
+        XCTAssertEqual(baseOnly.isCompatible(version: nil, entry), false)
+        XCTAssertEqual(withUpdate.isCompatible(version: nil, entry), true)
+        XCTAssertEqual(withUpdate.isCompatible(version: 0, entry), false)
+        XCTAssertNil(baseOnly.isCompatible(version: nil, nil))
     }
 }

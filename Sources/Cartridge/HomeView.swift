@@ -247,16 +247,20 @@ private struct GameRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(Array(store.games.enumerated()), id: \.element.id) { index, game in
-                        GameTile(game: game, selected: store.focusRow == 0 && store.selection == index)
-                            .id(index)
-                            .onTapGesture {
-                                if store.selection == index && store.focusRow == 0 { store.activate() }
-                                else { store.focusRow = 0; store.selection = index; store.click() }
-                            }
+                        Button {
+                            if store.selection == index && store.focusRow == 0 { store.activate() }
+                            else { store.focusRow = 0; store.selection = index; store.click() }
+                        } label: {
+                            GameTile(game: game, selected: store.focusRow == 0 && store.selection == index)
+                        }
+                        .buttonStyle(.plain)
+                        .id(index)
                     }
-                    AddTile(selected: store.focusRow == 0 && store.selection == store.games.count)
-                        .id(store.games.count)
-                        .onTapGesture { store.selection = store.games.count; store.presentAddPanel() }
+                    Button { store.selection = store.games.count; store.presentAddPanel() } label: {
+                        AddTile(selected: store.focusRow == 0 && store.selection == store.games.count)
+                    }
+                    .buttonStyle(.plain)
+                    .id(store.games.count)
                 }
                 .padding(.horizontal, 36)
                 .padding(.top, 46) // room for the selected game's title
@@ -433,45 +437,48 @@ struct ProgressRing: View {
 
 private struct ButtonRow: View {
     @Environment(Store.self) private var store
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(spacing: 22) {
             ForEach(HomeButton.allCases) { button in
                 let selected = store.focusRow == 1 && store.buttonSelection == button.rawValue
-                VStack(spacing: 8) {
-                    ZStack {
-                        Circle().fill(Color.tileBackground)
-                            .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
-                        Image(systemName: button.symbol)
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(button.tint)
-                            .symbolEffect(.pulse, isActive: button == .update && store.isUpdatingRepo)
-                        if (button == .setup && store.missingCount > 0) || (button == .update && store.nxnativeUpdateAvailable) {
-                            Circle().fill(.red).frame(width: 12, height: 12)
-                                .overlay(Circle().strokeBorder(.white, lineWidth: 2))
-                                .offset(x: 20, y: -20)
-                        }
-                    }
-                    .frame(width: 60, height: 60)
-                    .overlay {
-                        if selected {
-                            Circle().strokeBorder(.white, lineWidth: 3).padding(-2)
-                            Circle().strokeBorder(Color.focus, lineWidth: 4).padding(-7)
-                        }
-                    }
-                    Text(button.title)
-                        .font(.rounded(12, .medium))
-                        .foregroundStyle(selected ? Color.focus : .secondary)
-                        .opacity(selected ? 1 : 0.85)
-                }
-                .frame(width: 76)
-                .contentShape(Rectangle())
-                .onTapGesture {
+                Button {
                     store.focusRow = 1
                     store.buttonSelection = button.rawValue
                     store.play("Pop")
-                    button.perform(store)
+                    if button == .settings { openSettings() } else { button.perform(store) }
+                } label: {
+                    VStack(spacing: 8) {
+                        ZStack {
+                            Circle().fill(Color.tileBackground)
+                                .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+                            Image(systemName: button.symbol)
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(button.tint)
+                                .symbolEffect(.pulse, isActive: button == .update && store.isUpdatingRepo)
+                            if (button == .setup && store.missingCount > 0) || (button == .update && store.nxnativeUpdateAvailable) {
+                                Circle().fill(.red).frame(width: 12, height: 12)
+                                    .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                                    .offset(x: 20, y: -20)
+                            }
+                        }
+                        .frame(width: 60, height: 60)
+                        .overlay {
+                            if selected {
+                                Circle().strokeBorder(.white, lineWidth: 3).padding(-2)
+                                Circle().strokeBorder(Color.focus, lineWidth: 4).padding(-7)
+                            }
+                        }
+                        Text(button.title)
+                            .font(.rounded(12, .medium))
+                            .foregroundStyle(selected ? Color.focus : .secondary)
+                            .opacity(selected ? 1 : 0.85)
+                    }
+                    .frame(width: 76)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .help(button.title)
             }
         }

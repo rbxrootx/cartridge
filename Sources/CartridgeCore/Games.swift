@@ -98,6 +98,19 @@ public struct GameFolder: Hashable, Sendable {
                           outputs: outputs.sorted { $0.date > $1.date })
     }
 
+    /// Compares the folder's versions with the ones nxnative tested.
+    public enum VersionCheck: Equatable, Sendable {
+        case tested(Int)                    // a tested version is in the folder
+        case untested(have: [Int], tested: [Catalog.TestedVersion])
+        case unknown                        // no tested versions on record
+    }
+
+    public func versionCheck(_ entry: Catalog.Entry?) -> VersionCheck {
+        guard let tested = entry?.testedVersions, !tested.isEmpty else { return .unknown }
+        if let match = versions.reversed().first(where: { v in tested.contains { $0.code == v } }) { return .tested(match) }
+        return .untested(have: versions, tested: tested)
+    }
+
     public static func versionLabel(_ v: Int) -> String {
         v == 0 ? "Base game (v0)" : "Update \(v >> 16) (v\(v))"
     }
@@ -110,6 +123,22 @@ public struct Catalog: Sendable {
         public var name: String
         public var notes: URL?
         public var artwork: URL?
+        /// Versions nxnative registered for this game (`build` rows in its game.tsv), e.g. v1114112 = "1.9.0".
+        public var testedVersions: [TestedVersion] = []
+    }
+
+    public struct TestedVersion: Hashable, Sendable {
+        public var code: Int        // v-number, as in file names
+        public var display: String  // "1.9.0"
+    }
+
+    /// `build<TAB>v1114112<TAB>1.9.0<TAB>…` rows.
+    static func testedVersions(gameTSV: String) -> [TestedVersion] {
+        gameTSV.split(separator: "\n").compactMap { line in
+            let cols = line.split(separator: "\t")
+            guard cols.count >= 3, cols[0] == "build", cols[1].hasPrefix("v"), let code = Int(cols[1].dropFirst()) else { return nil }
+            return TestedVersion(code: code, display: String(cols[2]))
+        }
     }
 
     public var entries: [String: Entry] = [:]
@@ -141,8 +170,10 @@ public struct Catalog: Sendable {
             let id = String(m.3).uppercased()
             let key = normalize(name)
             let artwork = art[key] ?? art.first { key.hasPrefix($0.key) || $0.key.hasPrefix(key) }?.value
+            let tsv = (try? String(contentsOf: repo.appendingPathComponent("dm/games/\(m.2)/game.tsv"), encoding: .utf8)) ?? ""
             result[id] = Entry(titleID: id, name: name,
-                               notes: repo.appendingPathComponent("dm/games/\(m.2)/README.md"), artwork: artwork)
+                               notes: repo.appendingPathComponent("dm/games/\(m.2)/README.md"), artwork: artwork,
+                               testedVersions: testedVersions(gameTSV: tsv))
         }
         return result
     }

@@ -41,7 +41,7 @@ struct BuildOptions: Codable, Hashable {
 }
 
 enum Sheet: Identifiable, Hashable {
-    case game(UUID), setup, help, update, whatsNew
+    case game(UUID), setup, help, update, whatsNew, launchFailed
     var id: String {
         switch self {
         case .game(let id): "game-\(id)"
@@ -49,6 +49,7 @@ enum Sheet: Identifiable, Hashable {
         case .help: "help"
         case .update: "update"
         case .whatsNew: "whatsNew"
+        case .launchFailed: "launchFailed"
         }
     }
 }
@@ -77,6 +78,16 @@ final class Store {
 
     // Building
     private(set) var build: BuildSession?
+
+    // Playing
+    struct LaunchFailure {
+        var title: String
+        var titleID: String?
+        var logTail: String
+        var hint: String?
+        var logURL: URL?
+    }
+    private(set) var launchFailure: LaunchFailure?
 
     // Updates
     let updater = Updater()
@@ -202,7 +213,7 @@ final class Store {
     /// Primary action straight from the home screen: play a built Mac app, else open the game's page.
     func quickPlay() {
         guard focusRow == 0, let game = selectedGame else { activate(); return }
-        if let app = folders[game.id]?.latestMacApp { play("Pop"); NSWorkspace.shared.open(app.url) } else { activate() }
+        if let app = folders[game.id]?.latestMacApp { play("Pop"); launch(app.url, game: game) } else { activate() }
     }
 
     func click() { play("Tink", volume: 0.25) }
@@ -295,6 +306,50 @@ final class Store {
         try? body.write(to: script, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         NSWorkspace.shared.open(script)
+    }
+
+    // MARK: Launching
+
+    /// Opens a built game and watches it: if it quits within 25 s, show why (from nxnative's log) instead of nothing.
+    func launch(_ app: URL, game: LibraryGame) {
+        let folder = folders[game.id]
+        let titleID = folder?.titleID
+        let title = self.title(for: game)
+        let check = folder?.versionCheck(catalog[titleID])
+        let started = Date()
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration()) { running, error in
+            Task { @MainActor in
+                if let error {
+                    self.launchFailure = LaunchFailure(title: title, titleID: titleID, logTail: error.localizedDescription, hint: nil)
+                    self.sheet = .launchFailed
+                    return
+                }
+                guard let running else { return }
+                while !running.isTerminated && Date().timeIntervalSince(started) < 25 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                guard running.isTerminated, Date().timeIntervalSince(started) < 25 else { return }
+                self.reportEarlyExit(title: title, titleID: titleID, check: check)
+            }
+        }
+    }
+
+    private func reportEarlyExit(title: String, titleID: String?, check: GameFolder.VersionCheck?) {
+        let log = titleID.map { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/nxnative/\($0).log") }
+        let text = log.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        let tail = text.split(separator: "\n", omittingEmptySubsequences: false).suffix(25).joined(separator: "\n")
+        var hint: String?
+        if case .untested(_, let tested)? = check {
+            let names = tested.map(\.display).joined(separator: " or ")
+            hint = "This build isn’t a version nxnative was tested with. Add the \(names) update (dumped from your own console) to the game’s folder and rebuild: Cartridge picks it automatically."
+        } else if text.contains("Missing") || text.contains("missing") {
+            hint = "Some of the app’s game data is missing. Rebuild the game."
+        } else {
+            hint = "nxnative may not support this game yet. Check its notes, or report the log to nxnative."
+        }
+        launchFailure = LaunchFailure(title: title, titleID: titleID, logTail: tail.isEmpty ? "No log was written." : tail, hint: hint, logURL: log)
+        play("Basso")
+        sheet = .launchFailed
     }
 
     // MARK: nxnative updates

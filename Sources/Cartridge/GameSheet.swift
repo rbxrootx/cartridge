@@ -28,7 +28,10 @@ struct GameSheet: View {
             .frame(width: 640, height: 640)
             .onAppear {
                 options = store.defaultOptions
-                if !store.isReady { options.platform = store.defaultOptions.platform }
+                // Default to the version nxnative tested, when the folder has it and it isn't the newest.
+                if case .tested(let v) = folder.versionCheck(store.catalog[folder.titleID]), v != folder.versions.last {
+                    options.version = v
+                }
             }
             .confirmationDialog("Remove \(store.title(for: game)) from Cartridge?", isPresented: $confirmRemove) {
                 Button("Remove", role: .destructive) { store.remove(gameID); dismiss() }
@@ -98,12 +101,27 @@ struct GameSheet: View {
                 }
             }
 
+            if case .untested(_, let tested) = folder.versionCheck(store.catalog[folder.titleID]) {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("nxnative was tested with version \(tested.map(\.display).joined(separator: ", ")) of this game")
+                                .font(.headline)
+                            Text("Your folder has \(folder.versions.map { GameFolder.versionLabel($0) }.joined(separator: ", ")). Other versions are built from a guessed profile and may crash on launch. Add the \(tested.map(\.display).joined(separator: " or ")) update, dumped from your own console, to this folder.")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    }
+                }
+            }
+
             Section("Built") {
                 if let app = folder.latestMacApp {
                     LabeledContent {
                         HStack {
                             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.url]) }
-                            Button("Play") { NSWorkspace.shared.open(app.url) }.buttonStyle(.borderedProminent)
+                            Button("Play") { store.launch(app.url, game: game) }.buttonStyle(.borderedProminent)
                         }
                     } label: {
                         Label { Text("Mac app").badge(Text(app.date, style: .date)) } icon: { Image(systemName: "macbook") }
@@ -132,7 +150,10 @@ struct GameSheet: View {
                 if folder.versions.count > 1 {
                     Picker("Version", selection: $options.version) {
                         Text("Newest (\(GameFolder.versionLabel(folder.versions.last!)))").tag(nil as Int?)
-                        ForEach(folder.versions.reversed(), id: \.self) { Text(GameFolder.versionLabel($0)).tag($0 as Int?) }
+                        let tested = Set(store.catalog[folder.titleID]?.testedVersions.map(\.code) ?? [])
+                        ForEach(folder.versions.reversed(), id: \.self) { v in
+                            Text(GameFolder.versionLabel(v) + (tested.contains(v) ? " (tested)" : "")).tag(v as Int?)
+                        }
                     }
                 }
                 Picker("Game language", selection: $options.language) {
@@ -243,7 +264,9 @@ struct BuildProgressView: View {
                     HStack {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
                         if output.pathExtension == "app" {
-                            Button("Play Now") { NSWorkspace.shared.open(output) }.buttonStyle(.borderedProminent)
+                            Button("Play Now") {
+                                if let game = store.game(session.gameID) { store.launch(output, game: game) }
+                            }.buttonStyle(.borderedProminent)
                         }
                     }
                 }

@@ -218,3 +218,39 @@ struct SettingsView: View {
         if panel.runModal() == .OK, let url = panel.url { store.customRepoPath = url.path }
     }
 }
+
+/// Shown when a built game quits right after launching.
+struct LaunchFailedView: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let failure = store.launchFailure {
+                Label("\(failure.title) stopped", systemImage: "xmark.octagon.fill")
+                    .font(.rounded(22, .bold)).foregroundStyle(.red)
+                if let hint = failure.hint {
+                    Text(hint).font(.body).fixedSize(horizontal: false, vertical: true)
+                }
+                Text("The last lines of the game’s log:").font(.callout).foregroundStyle(.secondary)
+                ScrollView {
+                    Text(failure.logTail)
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                }
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                HStack {
+                    if let log = failure.logURL {
+                        Button("Show Full Log") { NSWorkspace.shared.activateFileViewerSelecting([log]) }
+                    }
+                    Spacer()
+                    Button("OK") { dismiss() }.keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(22)
+        .frame(width: 600, height: 520)
+    }
+}

@@ -106,4 +106,18 @@ final class CoreTests: XCTestCase {
         XCTAssertNotNil(updates[0].asset(named: "Cartridge.zip"))
         XCTAssertEqual(ReleaseNotes.parse(updates[0].body!), [.heading("Added"), .bullet("Updates wrapped")])
     }
+
+    func testTestedVersions() {
+        let tsv = "# comment\nbuild\tv1114112\t1.9.0\tmain=ab\nshader_versions\tv1114112\n"
+        XCTAssertEqual(Catalog.testedVersions(gameTSV: tsv), [Catalog.TestedVersion(code: 1114112, display: "1.9.0")])
+        var entry = Catalog.Entry(titleID: "0500000000010000", name: "Starlight Garden")
+        entry.testedVersions = Catalog.testedVersions(gameTSV: tsv)
+        let baseOnly = GameFolder(url: URL(fileURLWithPath: "/g"),
+                                  files: [GameFile.parse(URL(fileURLWithPath: "/g/X [0500000000010000][v0].nsp"))], outputs: [])
+        XCTAssertEqual(baseOnly.versionCheck(entry), .untested(have: [0], tested: entry.testedVersions))
+        var withUpdate = baseOnly
+        withUpdate.files.append(GameFile.parse(URL(fileURLWithPath: "/g/X [0500000000010800][v1114112].nsp")))
+        XCTAssertEqual(withUpdate.versionCheck(entry), .tested(1114112))
+        XCTAssertEqual(baseOnly.versionCheck(nil), .unknown)
+    }
 }

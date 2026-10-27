@@ -126,6 +126,7 @@ struct HomeView: View {
             case .help: HelpView()
             case .update: UpdateView()
             case .whatsNew: WhatsNewView()
+            case .launchFailed: LaunchFailedView()
             }
         }
         .onChange(of: store.sheet) { if store.sheet == nil { focused = true } }
